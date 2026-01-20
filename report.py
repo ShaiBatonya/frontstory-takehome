@@ -2,8 +2,8 @@ import argparse
 import numpy as np
 import pandas as pd
 
-SOURCE_TZ = "America/New_York"   # EST/ET -> UTC conversion (handles DST)
-OUT_DATE_FMT = "%Y/%m/%d"        # required output format
+SOURCE_TZ = "America/New_York"   
+OUT_DATE_FMT = "%Y/%m/%d"       
 
 
 def parse_est_to_utc(df: pd.DataFrame, col: str) -> pd.DataFrame:
@@ -19,8 +19,8 @@ def parse_est_to_utc(df: pd.DataFrame, col: str) -> pd.DataFrame:
 
     out = df.copy()
     out["dt_utc"] = dt
-    out["date_utc"] = out["dt_utc"].dt.floor("D")  # UTC day bucket
-    out["hour_utc"] = out["dt_utc"].dt.floor("h")  # UTC hour bucket
+    out["date_utc"] = out["dt_utc"].dt.floor("D") 
+    out["hour_utc"] = out["dt_utc"].dt.floor("h")  
     return out
 
 
@@ -48,31 +48,31 @@ def main():
     p.add_argument("--hourly", action="store_true", help="Add optional hourly columns")
     args = p.parse_args()
 
-    # 1) Load CSVs
+
     cost = pd.read_csv(args.cost, dtype={"campaign_id": "string", "campaign_name": "string"})
     rev = pd.read_csv(args.revenue, dtype={"campaign_id": "string"})
 
-    # 2) Numeric casting
+
     cost["clicks"] = pd.to_numeric(cost["clicks"], errors="coerce").fillna(0.0)
     cost["cost"] = pd.to_numeric(cost["cost"], errors="coerce").fillna(0.0)
     rev["revenue"] = pd.to_numeric(rev["revenue"], errors="coerce").fillna(0.0)
 
-    # 3) EST -> UTC
+
     cost = parse_est_to_utc(cost, "data_date")
     rev = parse_est_to_utc(rev, "data_date")
 
-    # 4) Filter by date_from/date_to (UTC days, inclusive)
+  
     d_from = pd.Timestamp(args.date_from, tz="UTC").floor("D")
     d_to = pd.Timestamp(args.date_to, tz="UTC").floor("D")
 
     cost = cost[(cost["date_utc"] >= d_from) & (cost["date_utc"] <= d_to)]
     rev = rev[(rev["date_utc"] >= d_from) & (rev["date_utc"] <= d_to)]
 
-    # 5) Aggregate daily per campaign
+
     cost_daily = (
         cost.groupby(["date_utc", "campaign_id"], as_index=False)
         .agg(
-            # Match SQL's MIN(campaign_name) and keep output deterministic regardless of input row order.
+            
             campaign_name=("campaign_name", "min"),
             total_cost=("cost", "sum"),
             total_clicks=("clicks", "sum"),
@@ -84,7 +84,7 @@ def main():
         .agg(total_revenue=("revenue", "sum"))
     )
 
-    # 6) Outer join
+   
     report = pd.merge(cost_daily, rev_daily, on=["date_utc", "campaign_id"], how="outer")
 
     report["campaign_name"] = report["campaign_name"].fillna("")
@@ -92,7 +92,7 @@ def main():
     report["total_clicks"] = report["total_clicks"].fillna(0.0)
     report["total_revenue"] = report["total_revenue"].fillna(0.0)
 
-    # 7) Calculations
+    
     report["total_profit"] = report["total_revenue"] - report["total_cost"]
 
     report["avg_cpc"] = safe_div(report["total_cost"], report["total_clicks"])
@@ -101,7 +101,7 @@ def main():
     cpc = safe_div(report["total_cost"], report["total_clicks"])
     report["total_roi"] = safe_div(uv, cpc)
 
-    # 8) Optional hourly columns
+   
     if args.hourly:
         cost_h = cost.groupby(["date_utc", "hour_utc", "campaign_id"], as_index=False).agg(cost=("cost", "sum"))
         rev_h = rev.groupby(["date_utc", "hour_utc", "campaign_id"], as_index=False).agg(revenue=("revenue", "sum"))
@@ -126,7 +126,7 @@ def main():
         report["positive_profit_hours"] = report["positive_profit_hours"].fillna(0).astype(int)
         report["hourly_avg_revenue"] = report["hourly_avg_revenue"].fillna(0.0)
 
-    # 9) Output columns/order
+  
     report["date"] = report["date_utc"].dt.strftime(OUT_DATE_FMT)
 
     cols = [
@@ -146,7 +146,7 @@ def main():
     report = report[cols].sort_values(["date", "campaign_id"]).reset_index(drop=True)
 
     report.to_csv(args.out, index=False)
-    # Avoid non-ASCII output to keep Windows consoles (non-UTF8 code pages) happy.
+   
     print(f"Wrote {args.out} ({len(report)} rows)")
 
 
